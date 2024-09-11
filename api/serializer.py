@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from transactions.models import Transactions
+from notifications.models import Notifications
 
 class TransactionsSerializer(serializers.ModelSerializer):
     class Meta:
@@ -7,5 +8,5 @@ class TransactionsSerializer(serializers.ModelSerializer):
         fields = '__all__'
 class NotificationsSerializer(serializers.ModelSerializer):
     class Meta:
-        model = Transactions
+        model = Notifications
         fields = '__all__'
