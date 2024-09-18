@@ -1,12 +1,14 @@
 from rest_framework import serializers
 from transactions.models import Transactions
-from notifications.models import Notifications
+from agreements.models import Agreements
 
 class TransactionsSerializer(serializers.ModelSerializer):
     class Meta:
         model = Transactions
         fields = '__all__'
-class NotificationsSerializer(serializers.ModelSerializer):
+class AgreementsSerializer(serializers.ModelSerializer):
     class Meta:
-        model = Notifications
+        model = Agreements
         fields = '__all__'
+class BlockchainValidationSerializer(serializers.Serializer):
+    validation_result = serializers.CharField()

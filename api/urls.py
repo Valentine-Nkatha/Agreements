@@ -1,10 +1,9 @@
 from django.urls import path
-from .views import TransactionsListView, NotificationsListView, TransactionsSearchView, TransactionsDetailView, DashboardListView
+from .views import TransactionsListView,AgreementsView,AgreementDetailView,CheckBlockchainView
 
 urlpatterns =[
    path("transactions/",TransactionsListView.as_view(), name="transactions_list_view"),
-   path("notifications/",NotificationsListView.as_view(), name="notifications_list_view"),
-   path("transactions/search/",TransactionsSearchView.as_view(),name="transactions_search_view"),
-   path("transactions/<int:id>/", TransactionsDetailView.as_view(), name="transactions_detail_view"),
-   path("dashboard/transactions/",DashboardListView.as_view(), name="dashboard_list_view"),
+   path('agreements/', AgreementsView.as_view(), name='agreements_list'),
+    path('agreements/<int:id>/', AgreementDetailView.as_view(), name='agreement_detail'),
+    path('check-blockchain/', CheckBlockchainView.as_view(), name='check_blockchain'),
 ]

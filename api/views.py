@@ -1,55 +1,53 @@
-
+# transactions/views.py
 
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from google.cloud import vision
 from transactions.models import Transactions
-from .serializer import TransactionsSerializer, NotificationsSerializer
+from agreements.models import Agreements
 from rest_framework import status
+from .serializer import TransactionsSerializer, AgreementsSerializer, BlockchainValidationSerializer
+from django.shortcuts import get_object_or_404
+from decimal import Decimal
+from django.utils import timezone
 import re
 from datetime import datetime
-from notifications.models import Notifications
-
+from django.http import JsonResponse
+from transactions.blockchain import Blockchain
 
 class TransactionsListView(APIView):
-    def get(self, request):
-       transactions = Transactions.objects.all()
-       serializer = TransactionsSerializer(transactions, many=True)
-       return Response(serializer.data)
 
     def post(self, request):
         if 'file1' not in request.FILES or 'file2' not in request.FILES:
             return Response({"error": "Both files (file1 and file2) must be provided"}, status=400)
+
         image_file1 = request.FILES['file1']
         image_file2 = request.FILES['file2']
         client = vision.ImageAnnotatorClient()
+
         def extract_data_from_image(image_file):
             try:
                 image_content = image_file.read()
-            except Exception as e:
-                raise ValueError(f"Failed to read file: {str(e)}")
-            image = vision.Image(content=image_content)
-            try:
+                image = vision.Image(content=image_content)
                 response = client.text_detection(image=image)
                 texts = response.text_annotations
                 extracted_text = texts[0].description if texts else ""
             except Exception as e:
                 raise ValueError(f"Failed to process image: {str(e)}")
-            print(f"Extracted Text: {extracted_text}")
             patterns = {
                 'amount': [r'Ksh\s*([\d,]+\.\d{2})', r'KES\s*([\d,]+\.\d{2})'],
                 'date': [r'on\s*(\d{1,2}/\d{1,2}/\d{2})', r'(\d{1,2}/\d{1,2}/\d{4})'],
-                'code': [r'\b([A-Z0-9]{10})\b'] 
-                
+                'code': [r'\b([A-Z0-9]{10})\b']
             }
             matches = {}
             for key, regex_list in patterns.items():
                 for pattern in regex_list:
                     match = re.search(pattern, extracted_text)
                     if match:
-                        matches[key] = match.group(1)  
+                        matches[key] = match.group(1)
                         break
             return matches
+
         try:
             data1 = extract_data_from_image(image_file1)
             data2 = extract_data_from_image(image_file2)
@@ -61,8 +59,8 @@ class TransactionsListView(APIView):
                 amount2 = float(data2['amount'].replace(',', ''))
             except ValueError:
                 return Response({"error": "Invalid amount format in one of the images"}, status=400)
-            date1 = data1['date']
-            date2 = data2['date']
+
+            date1, date2 = data1['date'], data2['date']
             date_formats = ['%d/%m/%y', '%d/%m/%Y']
             date_obj1 = date_obj2 = None
 
@@ -73,27 +71,35 @@ class TransactionsListView(APIView):
                     break
                 except ValueError:
                     continue
+
             if date_obj1 is None or date_obj2 is None:
                 return Response({"error": "Date format is incorrect"}, status=400)
-            formatted_date1 = date_obj1.strftime('%Y-%m-%d') 
+
+            formatted_date1 = date_obj1.strftime('%Y-%m-%d')
             formatted_date2 = date_obj2.strftime('%Y-%m-%d')
+
             if (amount1 == amount2 and
                 formatted_date1 == formatted_date2 and
                 data1['code'] == data2['code']):
+                
+                agreement_id = request.data.get('agreement_id')
+                agreement = get_object_or_404(Agreements, id=agreement_id)
+
                 try:
                     transaction, created = Transactions.objects.update_or_create(
-                        amount=amount1,
-                        date=formatted_date1,
-                        defaults={'status': 'complete',
-                        'unique_code': data1['code']
+                        unique_code=data1['code'],  
+                        defaults={
+                            'amount': amount1,  
+                            'date': timezone.now(),
+                            'status': 'complete'
                         }
                     )
-                    if created:
-                        message = "Transaction created and marked as complete"
-                    else:
-                        message = "Transaction updated and marked as complete"
+                    agreement.update_on_transaction(amount1)
+
+                    message = "Transaction created and marked as complete" if created else "Transaction updated and marked as complete"
                 except Exception as e:
                     return Response({"error": f"Failed to save transaction: {str(e)}"}, status=500)
+
                 return Response({"message": message, "amount": amount1}, status=201)
             else:
                 return Response({
@@ -107,58 +113,33 @@ class TransactionsListView(APIView):
                 }, status=400)
         else:
             return Response({"error": "Could not extract all required information from both images"}, status=400)
-class TransactionsSearchView(APIView):
+    
+
+class AgreementsView(APIView):
     def get(self, request):
-        amount = request.GET.get('amount', None)
-        date = request.GET.get('date', None)
-        transactions = Transactions.objects.all()
-        if amount:
-            transactions = transactions.filter(amount=amount)
-        if date:
-            transactions = transactions.filter(date=date)
-        serializer = TransactionsSerializer(transactions, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
-
-class TransactionsDetailView(APIView):
-    def get(self,request,id):
-            transactionss = Transactions.objects.get(id=id)
-            serializer = TransactionsSerializer(transactionss)
-            return Response(serializer.data)
-    def delete(self,request,id):
-            transactions =Transactions.objects.get(id=id)
-            transactions.delete()
-            return Response(status=status.HTTP_202_ACCEPTED)
-
-class DashboardListView(APIView):
-  def get(self, request):
-        transactions = Transactions.objects.all()
-        serializer = TransactionsSerializer(transactions, many=True)
+        agreements = Agreements.objects.all()
+        serializer = AgreementsSerializer(agreements, many=True)
         return Response(serializer.data)
 
-class NotificationsListView(APIView):
-    def get(self, request):
-        notifications = Notifications.objects.all()
-        serializer = NotificationsSerializer(notifications, many=True)
-        return Response(serializer.data)
-
-
-
-       # user = request.user
-       # notifications = Notifications.objects.filter(seller=user)
-       # serializer = NotificationsSerializer(notifications, many=True)
-       # return Response(serializer.data)
-
-   
     def post(self, request):
-        custom_message = "John is interested"#f"Buyer {interest.buyer.username} is interested in your land {interest.land.name}."
-        data = request.data.copy()  
-        data['message'] = custom_message 
-        serializer = NotificationsSerializer(data=data)
+        serializer = self.get_serializer(data=request.data)
         if serializer.is_valid():
-            notifications = serializer.save()
+            agreement = serializer.save()
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+class AgreementDetailView(APIView):
+    def get_object(self, request, id):
+        agreements = Agreements.objects.get(id=id)
+        serializer = AgreementsSerializer(agreements)
+        return Response(serializer.data)
 
-     
-        
+class CheckBlockchainView(APIView):
+    def get(self, request):
+        blockchain = Blockchain() 
+        validation_result = blockchain.is_valid()
+
+        serializer = BlockchainValidationSerializer(data={'validation_result': validation_result})
+        if serializer.is_valid():
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
